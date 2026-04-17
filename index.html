@@ -81,13 +81,10 @@
     </div>
 
     <div class="card" style="display:grid;gap:10px;">
-      <div>
-        <label class="label">GAS /exec URL</label>
-        <input id="apiBase" class="input" placeholder="https://script.google.com/macros/s/AKfycbwkSQ3HC3utCATzjxNHNAhoLRg33ghMUDVy0zkoZmXGHiXyvn8ALMfvqEPU_47evI1TDw/exec">
-      </div>
+      <input id="apiBase" class="input" type="hidden">
       <div class="row">
-        <button class="btn btn-main" type="button" onclick="saveApiBase()">URL保存</button>
-        <button class="btn" type="button" onclick="loadSessions()">セッション読込</button>
+        <button class="btn btn-main" type="button" onclick="loadSessions()">セッション読込</button>
+        <div></div>
       </div>
       <div>
         <label class="label">対象セッション</label>
@@ -158,14 +155,6 @@
       currentMode = mode;
       document.getElementById('modeIn').classList.toggle('active', mode === 'in');
       document.getElementById('modeOut').classList.toggle('active', mode === 'out');
-    }
-
-    function saveApiBase() {
-      const base = normalizeBaseUrl_(document.getElementById('apiBase').value);
-      if (!base) return setStatus('GAS /exec URL を入力してください。', true);
-      localStorage.setItem(LS_API, base);
-      document.getElementById('apiBase').value = base;
-      setStatus('URLを保存しました。', false);
     }
 
     async function loadSessions() {
