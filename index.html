@@ -29,6 +29,11 @@
     .sub { color: var(--sub); font-size: 14px; margin-top: 8px; line-height: 1.5; }
     .label { display: block; font-size: 14px; color: var(--sub); margin-bottom: 8px; font-weight: 700; }
     .section-title { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: .02em; }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .tab-btn { min-height: 48px; font-size: 15px; font-weight: 800; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--text); }
+    .tab-btn.active { background: var(--primary); color: #fff; border-color: transparent; }
+    .tab-panel { display: none; gap: 14px; }
+    .tab-panel.active { display: grid; }
     .input, .select, .btn {
       width: 100%;
       border: 1px solid var(--line);
@@ -78,6 +83,10 @@
     .status.ok { border-color: #bee4f5; background: var(--ok-bg); }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; color: var(--sub); }
     .compact-top { margin-top: 2px; }
+    .kv { display: grid; gap: 8px; }
+    .kv-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; }
+    .kv-key { color: var(--sub); font-size: 13px; font-weight: 700; }
+    .kv-val { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
 
     @media (min-width: 640px) {
       .wrap { padding: 18px; gap: 16px; }
@@ -95,12 +104,19 @@
       <div class="sub">外部スキャナ（iOS Chrome対策）。QR読取のみを分離し、打刻は既存GASへ送信します。</div>
     </div>
 
-    <div class="card" style="display:grid;gap:12px;">
+    <div class="tabs">
+      <button id="tabBtn-punch" class="tab-btn active" type="button" onclick="switchTab('punch')">打刻</button>
+      <button id="tabBtn-admin" class="tab-btn" type="button" onclick="switchTab('admin')">管理</button>
+      <button id="tabBtn-data" class="tab-btn" type="button" onclick="switchTab('data')">データ参照</button>
+    </div>
+
+    <div id="tab-punch" class="tab-panel active">
+      <div class="card" style="display:grid;gap:12px;">
       <input id="apiBase" class="input" type="hidden">
       <p class="section-title">操作設定</p>
       <div>
         <label class="label">対象セッション</label>
-        <select id="sessionSelect" class="select"></select>
+        <select id="sessionSelect" class="select" onchange="renderDataPanel()"></select>
       </div>
       <div>
         <label class="label">担当者名</label>
@@ -133,6 +149,34 @@
         <button class="btn btn-ghost" type="button" onclick="submitScanByInput()">手入力送信</button>
       </div>
     </div>
+    </div>
+
+    <div id="tab-admin" class="tab-panel">
+      <div class="card" style="display:grid;gap:12px;">
+        <p class="section-title">管理操作</p>
+        <div class="row row-2">
+          <button class="btn btn-main" type="button" onclick="loadSessions()">セッション再読込</button>
+          <button class="btn btn-ghost" type="button" onclick="refreshParentStatus()">親機状態更新</button>
+        </div>
+        <div class="row row-2">
+          <button class="btn btn-main" type="button" onclick="joinParent()">親機参加</button>
+          <button class="btn btn-ghost" type="button" onclick="leaveParent()">親機離脱</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-data" class="tab-panel">
+      <div class="card" style="display:grid;gap:12px;">
+        <p class="section-title">データ参照</p>
+        <div class="kv">
+          <div class="kv-row"><div class="kv-key">対象セッション</div><div id="dataSession" class="kv-val">-</div></div>
+          <div class="kv-row"><div class="kv-key">打刻モード</div><div id="dataMode" class="kv-val">-</div></div>
+          <div class="kv-row"><div class="kv-key">親機状態</div><div id="dataParent" class="kv-val">-</div></div>
+          <div class="kv-row"><div class="kv-key">端末ID</div><div id="dataDevice" class="kv-val">-</div></div>
+          <div class="kv-row"><div class="kv-key">API URL</div><div id="dataApi" class="kv-val">-</div></div>
+        </div>
+      </div>
+    </div>
 
     <div id="status" class="status">準備中...</div>
   </div>
@@ -149,6 +193,7 @@
     let lastScanned = '';
     let lastScannedAt = 0;
     let lastTryAt = 0;
+    let currentTab = 'punch';
     const deviceId = getOrCreateDeviceId_();
 
     init();
@@ -160,13 +205,24 @@
       document.getElementById('apiBase').value = base;
       if (base) localStorage.setItem(LS_API, base);
       setStatus(base ? '準備完了。セッションを自動読込します。' : '初期設定エラー: API URL が未設定です。', false);
+      renderDataPanel();
       if (base) loadSessions();
+    }
+
+    function switchTab(name) {
+      currentTab = name;
+      ['punch', 'admin', 'data'].forEach((n) => {
+        document.getElementById(`tab-${n}`).classList.toggle('active', n === name);
+        document.getElementById(`tabBtn-${n}`).classList.toggle('active', n === name);
+      });
+      if (name === 'data') renderDataPanel();
     }
 
     function setMode(mode) {
       currentMode = mode;
       document.getElementById('modeIn').classList.toggle('active', mode === 'in');
       document.getElementById('modeOut').classList.toggle('active', mode === 'out');
+      renderDataPanel();
     }
 
     async function loadSessions() {
@@ -191,6 +247,7 @@
           select.appendChild(opt);
         });
         setStatus('セッションを読み込みました。', false);
+        renderDataPanel();
       } catch (err) {
         setStatus(`セッション取得失敗: ${err.message || err}`, true);
       }
@@ -207,6 +264,7 @@
         if (!res.ok) throw new Error(res.error || '親機参加失敗');
         renderParentState_(res.data);
         setStatus('親機として参加しました。', false);
+        renderDataPanel();
       } catch (err) {
         setStatus(`親機参加失敗: ${err.message || err}`, true);
       }
@@ -221,8 +279,21 @@
         if (!res.ok) throw new Error(res.error || '親機離脱失敗');
         renderParentState_(res.data);
         setStatus('親機を離脱しました。', false);
+        renderDataPanel();
       } catch (err) {
         setStatus(`親機離脱失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function refreshParentStatus() {
+      try {
+        const res = await apiCall_('status', { sessionId: selectedSession_() });
+        if (!res.ok) throw new Error(res.error || '親機状態取得失敗');
+        renderParentState_(res.data);
+        setStatus('親機状態を更新しました。', false);
+        renderDataPanel();
+      } catch (err) {
+        setStatus(`親機状態取得失敗: ${err.message || err}`, true);
       }
     }
 
@@ -431,6 +502,20 @@
       const el = document.getElementById('status');
       el.textContent = text;
       el.classList.toggle('ok', !isError);
+    }
+
+    function renderDataPanel() {
+      const sessionSel = document.getElementById('sessionSelect');
+      const sessionText = sessionSel && sessionSel.selectedOptions && sessionSel.selectedOptions[0]
+        ? sessionSel.selectedOptions[0].textContent
+        : '-';
+      const parentText = document.getElementById('parentState').textContent || '-';
+      const api = normalizeBaseUrl_(document.getElementById('apiBase').value || '');
+      document.getElementById('dataSession').textContent = sessionText || '-';
+      document.getElementById('dataMode').textContent = currentMode === 'out' ? '退場モード' : '入場モード';
+      document.getElementById('dataParent').textContent = parentText;
+      document.getElementById('dataDevice').textContent = deviceId;
+      document.getElementById('dataApi').textContent = api || '-';
     }
 
     async function apiCall_(action, params) {
