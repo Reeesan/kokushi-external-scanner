@@ -23,69 +23,81 @@
       color: var(--text);
       font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
     }
-    .wrap { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
-    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
-    h1 { margin: 0; font-size: 22px; }
-    .sub { color: var(--sub); font-size: 12px; margin-top: 6px; }
-    .label { display: block; font-size: 12px; color: var(--sub); margin-bottom: 6px; font-weight: 700; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 14px; display: grid; gap: 14px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+    h1 { margin: 0; font-size: 28px; line-height: 1.2; }
+    .sub { color: var(--sub); font-size: 14px; margin-top: 8px; line-height: 1.5; }
+    .label { display: block; font-size: 14px; color: var(--sub); margin-bottom: 8px; font-weight: 700; }
+    .section-title { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: .02em; }
     .input, .select, .btn {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 11px 12px;
-      font-size: 14px;
+      border-radius: 12px;
+      padding: 13px 14px;
+      font-size: 17px;
       background: #fff;
       color: var(--text);
     }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .btn { font-weight: 700; background: #fff; }
+    .input, .select { min-height: 52px; }
+    .row { display: grid; gap: 10px; }
+    .row-2 { grid-template-columns: 1fr; }
+    .row-scan { grid-template-columns: 1fr; }
+    .btn { font-weight: 800; background: #fff; min-height: 54px; }
     .btn-main { background: var(--primary); color: #fff; border-color: transparent; }
+    .btn-ghost { background: #f7fcff; }
+    .btn-soft { background: #f1f8fc; }
     .mode.active { background: #dff2fc; border-color: #9fd7ef; }
     .camera-box {
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 14px;
       background: #eff7fb;
-      min-height: 240px;
+      min-height: 300px;
       overflow: hidden;
       position: relative;
     }
-    video { width: 100%; height: 280px; object-fit: cover; display: none; background: #000; }
+    video { width: 100%; height: 340px; object-fit: cover; display: none; background: #000; }
     .placeholder {
-      min-height: 240px;
+      min-height: 300px;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
       color: var(--sub);
-      font-size: 13px;
+      font-size: 16px;
       line-height: 1.6;
-      padding: 20px;
+      padding: 24px;
     }
     .status {
-      border-radius: 10px;
+      border-radius: 12px;
       border: 1px solid #f2cdc7;
       background: var(--error-bg);
-      padding: 10px;
-      font-size: 13px;
+      padding: 12px;
+      font-size: 15px;
       line-height: 1.6;
     }
     .status.ok { border-color: #bee4f5; background: var(--ok-bg); }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--sub); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; color: var(--sub); }
+    .compact-top { margin-top: 2px; }
+
+    @media (min-width: 640px) {
+      .wrap { padding: 18px; gap: 16px; }
+      .card { padding: 18px; }
+      h1 { font-size: 32px; }
+      .row-2 { grid-template-columns: 1fr 1fr; }
+      .row-scan { grid-template-columns: 2fr 1fr; }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="card">
+    <div class="card" style="display:grid;gap:12px;">
       <h1>國士舞双 練習管理ツール</h1>
       <div class="sub">外部スキャナ（iOS Chrome対策）。QR読取のみを分離し、打刻は既存GASへ送信します。</div>
     </div>
 
-    <div class="card" style="display:grid;gap:10px;">
+    <div class="card" style="display:grid;gap:12px;">
       <input id="apiBase" class="input" type="hidden">
-      <div class="row">
-        <button class="btn btn-main" type="button" onclick="loadSessions()">セッション読込</button>
-        <div></div>
-      </div>
+      <p class="section-title">操作設定</p>
       <div>
         <label class="label">対象セッション</label>
         <select id="sessionSelect" class="select"></select>
@@ -94,31 +106,31 @@
         <label class="label">担当者名</label>
         <input id="operatorName" class="input" placeholder="例: sekida">
       </div>
-      <div class="row">
-        <button id="modeIn" class="btn mode active" type="button" onclick="setMode('in')">入場</button>
-        <button id="modeOut" class="btn mode" type="button" onclick="setMode('out')">退場</button>
+      <div class="row row-2">
+        <button id="modeIn" class="btn btn-soft mode active" type="button" onclick="setMode('in')">入場モード</button>
+        <button id="modeOut" class="btn btn-soft mode" type="button" onclick="setMode('out')">退場モード</button>
       </div>
-      <div class="row">
-        <button class="btn" type="button" onclick="joinParent()">親機参加</button>
-        <button class="btn" type="button" onclick="leaveParent()">親機離脱</button>
+      <div class="row row-2">
+        <button class="btn btn-main" type="button" onclick="joinParent()">親機参加</button>
+        <button class="btn btn-ghost" type="button" onclick="leaveParent()">親機離脱</button>
       </div>
-      <div id="parentState" class="mono">親機状態: 未取得</div>
+      <div id="parentState" class="mono compact-top">親機状態: 未取得</div>
     </div>
 
-    <div class="card" style="display:grid;gap:10px;">
-      <div class="label">QR読み取り</div>
+    <div class="card" style="display:grid;gap:12px;">
+      <p class="section-title">QR読み取り</p>
+      <div class="row row-2">
+        <button class="btn btn-main" type="button" onclick="startCamera()">カメラ起動</button>
+        <button class="btn btn-ghost" type="button" onclick="stopCamera()">カメラ停止</button>
+      </div>
       <div class="camera-box">
         <video id="cameraVideo" playsinline autoplay muted></video>
         <canvas id="cameraCanvas" style="display:none;"></canvas>
         <div id="cameraPlaceholder" class="placeholder">カメラ未起動です。<br>「カメラ起動」を押してください。</div>
       </div>
-      <div class="row">
-        <button class="btn btn-main" type="button" onclick="startCamera()">カメラ起動</button>
-        <button class="btn" type="button" onclick="stopCamera()">カメラ停止</button>
-      </div>
-      <div class="row">
+      <div class="row row-scan">
         <input id="scanValue" class="input" placeholder="読み取り結果 / 手入力">
-        <button class="btn" type="button" onclick="submitScanByInput()">手入力送信</button>
+        <button class="btn btn-ghost" type="button" onclick="submitScanByInput()">手入力送信</button>
       </div>
     </div>
 
@@ -147,7 +159,7 @@
       const base = saved || fallback;
       document.getElementById('apiBase').value = base;
       if (base) localStorage.setItem(LS_API, base);
-      setStatus(base ? '準備完了。セッションを自動読込します。' : '準備完了。/exec URLを保存してセッション読込してください。', false);
+      setStatus(base ? '準備完了。セッションを自動読込します。' : '初期設定エラー: API URL が未設定です。', false);
       if (base) loadSessions();
     }
 
