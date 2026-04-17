@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>國士舞双 練習管理ツール - 外部スキャナ</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <style>
+    :root {
+      --bg: #f7fbfc;
+      --surface: #ffffff;
+      --line: #d9e7ec;
+      --text: #17324d;
+      --sub: #5c7285;
+      --primary: #4cb9e7;
+      --error-bg: #fff2ef;
+      --ok-bg: #ecf8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+    h1 { margin: 0; font-size: 22px; }
+    .sub { color: var(--sub); font-size: 12px; margin-top: 6px; }
+    .label { display: block; font-size: 12px; color: var(--sub); margin-bottom: 6px; font-weight: 700; }
+    .input, .select, .btn {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--text);
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .btn { font-weight: 700; background: #fff; }
+    .btn-main { background: var(--primary); color: #fff; border-color: transparent; }
+    .mode.active { background: #dff2fc; border-color: #9fd7ef; }
+    .camera-box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #eff7fb;
+      min-height: 240px;
+      overflow: hidden;
+      position: relative;
+    }
+    video { width: 100%; height: 280px; object-fit: cover; display: none; background: #000; }
+    .placeholder {
+      min-height: 240px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: var(--sub);
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 20px;
+    }
+    .status {
+      border-radius: 10px;
+      border: 1px solid #f2cdc7;
+      background: var(--error-bg);
+      padding: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .status.ok { border-color: #bee4f5; background: var(--ok-bg); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--sub); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>國士舞双 練習管理ツール</h1>
+      <div class="sub">外部スキャナ（iOS Chrome対策）。QR読取のみを分離し、打刻は既存GASへ送信します。</div>
+    </div>
+
+    <div class="card" style="display:grid;gap:10px;">
+      <div>
+        <label class="label">GAS /exec URL</label>
+        <input id="apiBase" class="input" placeholder="https://script.google.com/macros/s/AKfycbwkSQ3HC3utCATzjxNHNAhoLRg33ghMUDVy0zkoZmXGHiXyvn8ALMfvqEPU_47evI1TDw/exec">
+      </div>
+      <div class="row">
+        <button class="btn btn-main" type="button" onclick="saveApiBase()">URL保存</button>
+        <button class="btn" type="button" onclick="loadSessions()">セッション読込</button>
+      </div>
+      <div>
+        <label class="label">対象セッション</label>
+        <select id="sessionSelect" class="select"></select>
+      </div>
+      <div>
+        <label class="label">担当者名</label>
+        <input id="operatorName" class="input" placeholder="例: sekida">
+      </div>
+      <div class="row">
+        <button id="modeIn" class="btn mode active" type="button" onclick="setMode('in')">入場</button>
+        <button id="modeOut" class="btn mode" type="button" onclick="setMode('out')">退場</button>
+      </div>
+      <div class="row">
+        <button class="btn" type="button" onclick="joinParent()">親機参加</button>
+        <button class="btn" type="button" onclick="leaveParent()">親機離脱</button>
+      </div>
+      <div id="parentState" class="mono">親機状態: 未取得</div>
+    </div>
+
+    <div class="card" style="display:grid;gap:10px;">
+      <div class="label">QR読み取り</div>
+      <div class="camera-box">
+        <video id="cameraVideo" playsinline autoplay muted></video>
+        <canvas id="cameraCanvas" style="display:none;"></canvas>
+        <div id="cameraPlaceholder" class="placeholder">カメラ未起動です。<br>「カメラ起動」を押してください。</div>
+      </div>
+      <div class="row">
+        <button class="btn btn-main" type="button" onclick="startCamera()">カメラ起動</button>
+        <button class="btn" type="button" onclick="stopCamera()">カメラ停止</button>
+      </div>
+      <div class="row">
+        <input id="scanValue" class="input" placeholder="読み取り結果 / 手入力">
+        <button class="btn" type="button" onclick="submitScanByInput()">手入力送信</button>
+      </div>
+    </div>
+
+    <div id="status" class="status">準備中...</div>
+  </div>
+
+  <script>
+    const LS_API = 'kokushi_scanner_api_base_v1';
+    const LS_DEVICE = 'kokushi_scanner_device_id_v1';
+    let currentMode = 'in';
+    let stream = null;
+    let scanRAF = 0;
+    let barcodeDetector = null;
+    let inflight = false;
+    let lastScanned = '';
+    let lastScannedAt = 0;
+    let lastTryAt = 0;
+    const deviceId = getOrCreateDeviceId_();
+
+    init();
+
+    function init() {
+      const saved = localStorage.getItem(LS_API) || '';
+      document.getElementById('apiBase').value = saved;
+      setStatus('準備完了。/exec URLを保存してセッション読込してください。', false);
+      if (saved) loadSessions();
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.getElementById('modeIn').classList.toggle('active', mode === 'in');
+      document.getElementById('modeOut').classList.toggle('active', mode === 'out');
+    }
+
+    function saveApiBase() {
+      const base = normalizeBaseUrl_(document.getElementById('apiBase').value);
+      if (!base) return setStatus('GAS /exec URL を入力してください。', true);
+      localStorage.setItem(LS_API, base);
+      document.getElementById('apiBase').value = base;
+      setStatus('URLを保存しました。', false);
+    }
+
+    async function loadSessions() {
+      try {
+        const res = await apiCall_('sessions', {});
+        if (!res.ok) throw new Error(res.error || 'sessions 取得失敗');
+        const sessions = Array.isArray(res.data) ? res.data : [];
+        const select = document.getElementById('sessionSelect');
+        select.innerHTML = '';
+        if (!sessions.length) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '利用可能な練習がありません';
+          select.appendChild(opt);
+          setStatus('セッションがありません。', true);
+          return;
+        }
+        sessions.forEach((s) => {
+          const opt = document.createElement('option');
+          opt.value = s.session_id || '';
+          opt.textContent = s.label || s.session_id;
+          select.appendChild(opt);
+        });
+        setStatus('セッションを読み込みました。', false);
+      } catch (err) {
+        setStatus(`セッション取得失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function joinParent() {
+      try {
+        const res = await apiCall_('join_parent', {
+          sessionId: selectedSession_(),
+          deviceId,
+          deviceName: navigator.userAgent || 'external-scanner',
+          operatorName: document.getElementById('operatorName').value.trim(),
+        });
+        if (!res.ok) throw new Error(res.error || '親機参加失敗');
+        renderParentState_(res.data);
+        setStatus('親機として参加しました。', false);
+      } catch (err) {
+        setStatus(`親機参加失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function leaveParent() {
+      try {
+        const res = await apiCall_('leave_parent', {
+          sessionId: selectedSession_(),
+          deviceId,
+        });
+        if (!res.ok) throw new Error(res.error || '親機離脱失敗');
+        renderParentState_(res.data);
+        setStatus('親機を離脱しました。', false);
+      } catch (err) {
+        setStatus(`親機離脱失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function startCamera() {
+      try {
+        if (!window.isSecureContext) throw new Error('HTTPSで開いてください。');
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('このブラウザはカメラ非対応です。');
+        stopCamera();
+
+        stream = await getStream_();
+        const video = document.getElementById('cameraVideo');
+        video.playsInline = true;
+        video.autoplay = true;
+        video.muted = true;
+        video.setAttribute('webkit-playsinline', 'true');
+        video.srcObject = stream;
+        await waitReady_(video);
+        await playWithRetry_(video);
+
+        const placeholder = document.getElementById('cameraPlaceholder');
+        video.style.display = 'block';
+        placeholder.style.display = 'none';
+
+        barcodeDetector = await buildDetector_();
+        startLoop_();
+        setStatus('カメラ起動完了。QRをかざしてください。', false);
+      } catch (err) {
+        stopCamera();
+        setStatus(`カメラ起動失敗: ${err.message || err}`, true);
+      }
+    }
+
+    function stopCamera() {
+      if (scanRAF) cancelAnimationFrame(scanRAF);
+      scanRAF = 0;
+      barcodeDetector = null;
+      lastTryAt = 0;
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+      }
+      const video = document.getElementById('cameraVideo');
+      const placeholder = document.getElementById('cameraPlaceholder');
+      video.pause();
+      video.srcObject = null;
+      video.style.display = 'none';
+      placeholder.style.display = 'flex';
+    }
+
+    function startLoop_() {
+      if (scanRAF) cancelAnimationFrame(scanRAF);
+      const tick = async () => {
+        try { await scanFrame_(); } catch (_) {}
+        if (stream) scanRAF = requestAnimationFrame(tick);
+      };
+      scanRAF = requestAnimationFrame(tick);
+    }
+
+    async function scanFrame_() {
+      if (inflight) return;
+      const video = document.getElementById('cameraVideo');
+      if (!video || video.readyState < 2) return;
+      const now = Date.now();
+      if ((now - lastTryAt) < 180) return;
+      lastTryAt = now;
+
+      let value = '';
+      if (barcodeDetector) value = await detectByBarcode_(video);
+      if (!value) value = detectByJsqr_(video);
+      if (!value) return;
+      if (value === lastScanned && (now - lastScannedAt) < 3000) return;
+
+      lastScanned = value;
+      lastScannedAt = now;
+      document.getElementById('scanValue').value = value;
+      await sendScan_(value);
+    }
+
+    async function submitScanByInput() {
+      const value = document.getElementById('scanValue').value.trim();
+      if (!value) return setStatus('QR値を入力してください。', true);
+      await sendScan_(value);
+    }
+
+    async function sendScan_(scanValue) {
+      if (inflight) return;
+      inflight = true;
+      try {
+        const res = await apiCall_('record_scan', {
+          sessionId: selectedSession_(),
+          scanValue,
+          eventType: currentMode,
+          deviceId,
+          deviceName: navigator.userAgent || 'external-scanner',
+          operatorName: document.getElementById('operatorName').value.trim(),
+          source: 'external',
+        });
+        if (!res.ok) throw new Error(res.error || '打刻失敗');
+        const data = res.data || {};
+        setStatus(`${data.name || 'メンバー'} / ${data.event_type || ''} を記録しました。`, false);
+      } catch (err) {
+        setStatus(`打刻失敗: ${err.message || err}`, true);
+      } finally {
+        inflight = false;
+      }
+    }
+
+    async function getStream_() {
+      const candidates = [
+        { audio: false, video: true },
+        { audio: false, video: { facingMode: { ideal: 'environment' } } },
+        { audio: false, video: { facingMode: 'environment' } },
+        { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+      ];
+      let lastErr = null;
+      for (const constraints of candidates) {
+        try {
+          return await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr || new Error('カメラを利用できません。');
+    }
+
+    async function buildDetector_() {
+      if (!('BarcodeDetector' in window)) return null;
+      try {
+        const formats = BarcodeDetector.getSupportedFormats ? await BarcodeDetector.getSupportedFormats() : [];
+        if (formats.length && !formats.includes('qr_code')) return null;
+        return new BarcodeDetector({ formats: ['qr_code'] });
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function detectByBarcode_(video) {
+      try {
+        const rows = await barcodeDetector.detect(video);
+        if (!rows || !rows.length) return '';
+        return String(rows[0].rawValue || '').trim();
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function detectByJsqr_(video) {
+      const canvas = document.getElementById('cameraCanvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      if (!width || !height) return '';
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(video, 0, 0, width, height);
+      const image = ctx.getImageData(0, 0, width, height);
+      const row = jsQR(image.data, width, height, { inversionAttempts: 'dontInvert' });
+      return row && row.data ? String(row.data).trim() : '';
+    }
+
+    function waitReady_(video, timeoutMs = 2000) {
+      return new Promise((resolve) => {
+        if (video.readyState >= 2) return resolve();
+        let done = false;
+        const fin = () => {
+          if (done) return;
+          done = true;
+          video.removeEventListener('loadedmetadata', onReady);
+          video.removeEventListener('canplay', onReady);
+          resolve();
+        };
+        const onReady = () => fin();
+        video.addEventListener('loadedmetadata', onReady, { once: true });
+        video.addEventListener('canplay', onReady, { once: true });
+        setTimeout(fin, timeoutMs);
+      });
+    }
+
+    async function playWithRetry_(video) {
+      let err = null;
+      for (const delayMs of [0, 120, 280, 560]) {
+        if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+        try {
+          await video.play();
+          return;
+        } catch (e) {
+          err = e;
+        }
+      }
+      throw err || new Error('カメラ映像を再生できません。');
+    }
+
+    function selectedSession_() {
+      const v = document.getElementById('sessionSelect').value;
+      if (!v) throw new Error('対象セッションを選択してください。');
+      return v;
+    }
+
+    function renderParentState_(data) {
+      const count = Number(data && data.parent_devices_count || 0);
+      const max = Number(data && data.max_parent_devices || 0);
+      document.getElementById('parentState').textContent = `親機状態: ${count}/${max} 台`;
+    }
+
+    function setStatus(text, isError) {
+      const el = document.getElementById('status');
+      el.textContent = text;
+      el.classList.toggle('ok', !isError);
+    }
+
+    async function apiCall_(action, params) {
+      const base = normalizeBaseUrl_(document.getElementById('apiBase').value);
+      if (!base) throw new Error('/exec URLが未設定です。');
+      const payload = Object.assign({}, params || {}, { api: action });
+      return jsonp_(base, payload);
+    }
+
+    function jsonp_(baseUrl, params) {
+      return new Promise((resolve, reject) => {
+        const cb = `__jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('API応答がタイムアウトしました。'));
+        }, 12000);
+
+        const cleanup = () => {
+          clearTimeout(timeout);
+          if (script && script.parentNode) script.parentNode.removeChild(script);
+          try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+        };
+
+        window[cb] = (result) => {
+          cleanup();
+          resolve(result || {});
+        };
+
+        const url = new URL(baseUrl);
+        Object.keys(params || {}).forEach((k) => {
+          const val = params[k];
+          if (val === undefined || val === null) return;
+          url.searchParams.set(k, String(val));
+        });
+        url.searchParams.set('callback', cb);
+
+        const script = document.createElement('script');
+        script.src = url.toString();
+        script.onerror = () => {
+          cleanup();
+          reject(new Error('API読込に失敗しました。URLを確認してください。'));
+        };
+        document.body.appendChild(script);
+      });
+    }
+
+    function normalizeBaseUrl_(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      try {
+        const u = new URL(raw);
+        return `${u.origin}${u.pathname}`;
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function getOrCreateDeviceId_() {
+      let id = localStorage.getItem(LS_DEVICE);
+      if (id) return id;
+      id = `ext-${Math.random().toString(36).slice(2, 11)}-${Date.now().toString(36)}`;
+      localStorage.setItem(LS_DEVICE, id);
+      return id;
+    }
+  </script>
+</body>
+</html>
