@@ -438,9 +438,10 @@
     function jsonp_(baseUrl, params) {
       return new Promise((resolve, reject) => {
         const cb = `__jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        let requestUrl = '';
         const timeout = setTimeout(() => {
           cleanup();
-          reject(new Error('API応答がタイムアウトしました。'));
+          reject(new Error(`API応答がタイムアウトしました。 URL: ${requestUrl}`));
         }, 12000);
 
         const cleanup = () => {
@@ -461,12 +462,13 @@
           url.searchParams.set(k, String(val));
         });
         url.searchParams.set('callback', cb);
+        requestUrl = url.toString();
 
         const script = document.createElement('script');
-        script.src = url.toString();
+        script.src = requestUrl;
         script.onerror = () => {
           cleanup();
-          reject(new Error('API読込に失敗しました。URLを確認してください。'));
+          reject(new Error(`API読込に失敗しました。URLまたはGASの公開設定を確認してください。 URL: ${requestUrl}`));
         };
         document.body.appendChild(script);
       });
@@ -491,5 +493,3 @@
       return id;
     }
   </script>
-</body>
-</html>
