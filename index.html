@@ -140,6 +140,8 @@
     .kv-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; }
     .kv-key { color: var(--sub); font-size: 13px; font-weight: 700; }
     .kv-val { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+    .debug-only { display: none; }
+    body.debug .debug-only { display: grid; }
 
     @media (min-width: 640px) {
       .wrap { padding: 18px; gap: 16px; }
@@ -187,7 +189,6 @@
         <button id="modeIn" class="btn btn-soft mode active" type="button" onclick="setMode('in')">入場モード</button>
         <button id="modeOut" class="btn btn-soft mode" type="button" onclick="setMode('out')">退場モード</button>
       </div>
-      <div id="parentState" class="mono compact-top">親機状態: 未取得</div>
     </div>
 
     <div class="card" style="display:grid;gap:12px;">
@@ -211,13 +212,8 @@
     <div id="tab-admin" class="tab-panel">
       <div class="card" style="display:grid;gap:12px;">
         <p class="section-title">管理操作</p>
-        <div class="row row-2">
+        <div class="row">
           <button class="btn btn-main" type="button" onclick="loadSessions()">セッション再読込</button>
-          <button class="btn btn-ghost" type="button" onclick="refreshParentStatus()">親機状態更新</button>
-        </div>
-        <div class="row row-2">
-          <button class="btn btn-main" type="button" onclick="joinParent()">親機参加</button>
-          <button class="btn btn-ghost" type="button" onclick="leaveParent()">親機離脱</button>
         </div>
       </div>
     </div>
@@ -228,8 +224,9 @@
         <div class="kv">
           <div class="kv-row"><div class="kv-key">対象セッション</div><div id="dataSession" class="kv-val">-</div></div>
           <div class="kv-row"><div class="kv-key">打刻モード</div><div id="dataMode" class="kv-val">-</div></div>
-          <div class="kv-row"><div class="kv-key">親機状態</div><div id="dataParent" class="kv-val">-</div></div>
           <div class="kv-row"><div class="kv-key">端末ID</div><div id="dataDevice" class="kv-val">-</div></div>
+          <div class="kv-row debug-only"><div class="kv-key">接続先</div><div id="dataApi" class="kv-val">-</div></div>
+          <div class="kv-row debug-only"><div class="kv-key">診断URL</div><div id="dataDebugUrl" class="kv-val">-</div></div>
         </div>
       </div>
     </div>
@@ -240,7 +237,7 @@
   <script>
     const LS_DEVICE = 'kokushi_scanner_device_id_v1';
     const DEFAULT_API_BASE = 'https://script.google.com/macros/s/AKfycbwkSQ3HC3utCATzjxNHNAhoLRg33ghMUDVy0zkoZmXGHiXyvn8ALMfvqEPU_47evI1TDw/exec';
-    const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000;
+    const DEBUG_MODE = new URLSearchParams(location.search).get('debug') === '1';
     let currentMode = 'in';
     let stream = null;
     let scanRAF = 0;
@@ -250,13 +247,12 @@
     let lastScannedAt = 0;
     let lastTryAt = 0;
     let currentTab = 'punch';
-    let heartbeatTimer = null;
-    let activeParentSessionId = '';
     const deviceId = getOrCreateDeviceId_();
 
     init();
 
     function init() {
+      document.body.classList.toggle('debug', DEBUG_MODE);
       const base = getApiBase_();
       setStatus(base ? '準備完了。セッションを自動読込します。' : 'スキャナ設定が未完了です。管理者に確認してください。', !base);
       syncTabIndicator_();
@@ -317,90 +313,14 @@
       }
     }
 
-    async function joinParent() {
-      try {
-        const res = await apiCall_('join_parent', {
-          sessionId: selectedSession_(),
-          deviceId,
-          deviceName: navigator.userAgent || 'external-scanner',
-          operatorName: document.getElementById('operatorName').value.trim(),
-        });
-        if (!res.ok) throw new Error(res.error || '親機参加失敗');
-        renderParentState_(res.data);
-        activeParentSessionId = selectedSession_();
-        startHeartbeat_();
-        setStatus('親機として参加しました。', false);
-        renderDataPanel();
-        return true;
-      } catch (err) {
-        setStatus(`親機参加失敗: ${err.message || err}`, true);
-        return false;
-      }
-    }
-
-    async function leaveParent() {
-      try {
-        const res = await apiCall_('leave_parent', {
-          sessionId: selectedSession_(),
-          deviceId,
-        });
-        if (!res.ok) throw new Error(res.error || '親機離脱失敗');
-        renderParentState_(res.data);
-        activeParentSessionId = '';
-        stopHeartbeat_();
-        setStatus('親機を離脱しました。', false);
-        renderDataPanel();
-        return true;
-      } catch (err) {
-        setStatus(`親機離脱失敗: ${err.message || err}`, true);
-        return false;
-      }
-    }
-
-    async function refreshParentStatus() {
-      try {
-        const res = await apiCall_('status', { sessionId: selectedSession_() });
-        if (!res.ok) throw new Error(res.error || '親機状態取得失敗');
-        renderParentState_(res.data);
-        setStatus('親機状態を更新しました。', false);
-        renderDataPanel();
-      } catch (err) {
-        setStatus(`親機状態取得失敗: ${err.message || err}`, true);
-      }
-    }
-
-    function startHeartbeat_() {
-      stopHeartbeat_();
-      if (!activeParentSessionId) return;
-      heartbeatTimer = setInterval(async () => {
-        try {
-          const res = await apiCall_('heartbeat', {
-            sessionId: activeParentSessionId,
-            deviceId,
-            operatorName: document.getElementById('operatorName').value.trim(),
-          });
-          if (!res.ok) throw new Error(res.error || 'heartbeat 失敗');
-          renderParentState_(res.data);
-          renderDataPanel();
-        } catch (err) {
-          activeParentSessionId = '';
-          stopHeartbeat_();
-          setStatus(`親機状態の維持に失敗しました: ${err.message || err}`, true);
-        }
-      }, HEARTBEAT_INTERVAL_MS);
-    }
-
-    function stopHeartbeat_() {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      heartbeatTimer = null;
-    }
-
     async function startContinuousScan() {
       const base = getApiBase_();
       if (!base) return setStatus('スキャナ設定が未完了です。管理者に確認してください。', true);
-
-      const joined = await joinParent();
-      if (!joined) return;
+      try {
+        selectedSession_();
+      } catch (err) {
+        return setStatus(err.message || String(err), true);
+      }
       await startCamera();
     }
 
@@ -599,12 +519,6 @@
       return v;
     }
 
-    function renderParentState_(data) {
-      const count = Number(data && data.parent_devices_count || 0);
-      const max = Number(data && data.max_parent_devices || 0);
-      document.getElementById('parentState').textContent = `親機状態: ${count}/${max} 台`;
-    }
-
     function setStatus(text, isError) {
       const el = document.getElementById('status');
       el.textContent = text;
@@ -616,11 +530,13 @@
       const sessionText = sessionSel && sessionSel.selectedOptions && sessionSel.selectedOptions[0]
         ? sessionSel.selectedOptions[0].textContent
         : '-';
-      const parentText = document.getElementById('parentState').textContent || '-';
       document.getElementById('dataSession').textContent = sessionText || '-';
       document.getElementById('dataMode').textContent = currentMode === 'out' ? '退場モード' : '入場モード';
-      document.getElementById('dataParent').textContent = parentText;
       document.getElementById('dataDevice').textContent = deviceId;
+      const apiEl = document.getElementById('dataApi');
+      const debugEl = document.getElementById('dataDebugUrl');
+      if (apiEl) apiEl.textContent = DEBUG_MODE ? (getApiBase_() || '-') : '-';
+      if (debugEl) debugEl.textContent = DEBUG_MODE ? buildDebugUrl_() : '-';
     }
 
     async function apiCall_(action, params) {
@@ -671,6 +587,15 @@
 
     function getApiBase_() {
       return normalizeBaseUrl_(DEFAULT_API_BASE || '');
+    }
+
+    function buildDebugUrl_() {
+      const base = getApiBase_();
+      if (!base) return '-';
+      const url = new URL(base);
+      url.searchParams.set('api', 'sessions');
+      url.searchParams.set('callback', 'debug');
+      return url.toString();
     }
 
     function normalizeBaseUrl_(value) {
