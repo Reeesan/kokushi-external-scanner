@@ -187,13 +187,13 @@
     <div class="card" style="display:grid;gap:12px;">
       <p class="section-title">QR読み取り</p>
       <div class="row row-2">
-        <button class="btn btn-main" type="button" onclick="startCamera()">カメラ起動</button>
+        <button class="btn btn-main" type="button" onclick="startContinuousScan()">連続読取開始</button>
         <button class="btn btn-ghost" type="button" onclick="stopCamera()">カメラ停止</button>
       </div>
       <div class="camera-box">
         <video id="cameraVideo" playsinline autoplay muted></video>
         <canvas id="cameraCanvas" style="display:none;"></canvas>
-        <div id="cameraPlaceholder" class="placeholder">カメラ未起動です。<br>「カメラ起動」を押してください。</div>
+        <div id="cameraPlaceholder" class="placeholder">カメラ未起動です。<br>「連続読取開始」を押してください。</div>
       </div>
       <div class="row row-scan">
         <input id="scanValue" class="input" placeholder="読み取り結果 / 手入力">
@@ -346,8 +346,10 @@
         startHeartbeat_();
         setStatus('親機として参加しました。', false);
         renderDataPanel();
+        return true;
       } catch (err) {
         setStatus(`親機参加失敗: ${err.message || err}`, true);
+        return false;
       }
     }
 
@@ -363,8 +365,10 @@
         stopHeartbeat_();
         setStatus('親機を離脱しました。', false);
         renderDataPanel();
+        return true;
       } catch (err) {
         setStatus(`親機離脱失敗: ${err.message || err}`, true);
+        return false;
       }
     }
 
@@ -404,6 +408,15 @@
     function stopHeartbeat_() {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
+    }
+
+    async function startContinuousScan() {
+      const base = normalizeBaseUrl_(document.getElementById('apiBase').value || '');
+      if (!base) return setStatus('GAS /exec URL を入力して「URL保存・読込」を押してください。', true);
+
+      const joined = await joinParent();
+      if (!joined) return;
+      await startCamera();
     }
 
     async function startCamera() {
