@@ -134,8 +134,27 @@
     .kv-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; }
     .kv-key { color: var(--text-sub); font-size: 13px; font-weight: 700; }
     .kv-val { color: var(--text-main); font-size: 14px; overflow-wrap: anywhere; }
+    .muted { color: var(--text-sub); font-size:13px; line-height:1.6; }
+    .admin-panel { display:grid; gap:0; }
+    .mini-title { margin:0 0 6px; color:var(--text-sub); font-size:12px; font-weight:700; letter-spacing:.04em; }
+    .log-list { display:grid; gap:8px; }
+    .log-item {
+      display:grid; gap:8px; padding:12px; border:1px solid var(--line); border-radius:10px;
+      background:#f9fdff;
+    }
+    .log-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+    .log-name { font-weight:700; font-size:14px; }
+    .log-meta { color:var(--text-sub); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+    .badge {
+      display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border-radius:999px;
+      background:rgba(123,199,190,.18); color:var(--text-main); font-size:12px; font-weight:700;
+      white-space:nowrap;
+    }
+    .badge-invalid { background:rgba(255,143,122,.16); color:#8a3a2b; }
+    .btn-small { min-height:36px; font-size:13px; }
     .debug-only { display: none; }
     body.debug .debug-only { display: grid; }
+    [hidden] { display:none !important; }
 
     @media (min-width: 640px) {
       .row-scan { grid-template-columns: 2fr 1fr; }
@@ -204,10 +223,72 @@
     </div>
 
     <div id="tab-admin" class="tab-panel">
-      <div class="card stack">
-        <div class="card-title">管理</div>
-        <div class="row">
-          <button class="btn btn-soft" type="button" onclick="loadSessions()">練習一覧を更新</button>
+      <div id="adminLocked" class="card stack">
+        <div class="card-title">管理PIN</div>
+        <input id="adminPinInput" class="input" type="password" inputmode="numeric" autocomplete="off" placeholder="管理PIN">
+        <button class="btn btn-main primary-action" type="button" onclick="unlockAdmin()">管理機能を開く</button>
+      </div>
+
+      <div id="adminUnlocked" class="admin-panel" hidden>
+        <div class="card stack">
+          <div class="card-title">管理操作</div>
+          <div>
+            <label class="label">管理対象セッション</label>
+            <select id="adminSessionSelect" class="select"></select>
+          </div>
+          <div class="row">
+            <button class="btn btn-soft" type="button" onclick="loadSessions()">練習一覧を更新</button>
+            <button class="btn btn-soft" type="button" onclick="loadAdminData()">管理データを更新</button>
+          </div>
+          <div class="row">
+            <button class="btn btn-main" type="button" onclick="recalculateSelectedSession()">再計算</button>
+            <button class="btn btn-soft" type="button" onclick="closeSelectedSession()">練習を終了</button>
+          </div>
+          <button class="btn btn-soft" type="button" onclick="lockAdmin()">管理を閉じる</button>
+        </div>
+
+        <div class="card stack">
+          <div class="card-title">打刻忘れ追加</div>
+          <div>
+            <label class="label">対象セッション</label>
+            <select id="manualSessionSelect" class="select"></select>
+          </div>
+          <div>
+            <label class="label">メンバー</label>
+            <select id="manualMemberSelect" class="select"></select>
+          </div>
+          <div>
+            <label class="label">打刻種別</label>
+            <div class="modes">
+              <button id="manualModeIn" class="mode-btn active-in" type="button" onclick="setManualMode('in')">入場</button>
+              <button id="manualModeOut" class="mode-btn" type="button" onclick="setManualMode('out')">退場</button>
+            </div>
+          </div>
+          <div>
+            <label class="label">打刻日時</label>
+            <input id="manualScannedAt" class="input" type="datetime-local">
+          </div>
+          <div>
+            <label class="label">メモ</label>
+            <input id="manualNote" class="input" placeholder="例: 打刻忘れ">
+          </div>
+          <button class="btn btn-main primary-action" type="button" onclick="submitManualPunch()">打刻を追加</button>
+        </div>
+
+        <div class="card stack">
+          <div class="card-title">打刻履歴の無効化</div>
+          <div>
+            <label class="label">対象セッション</label>
+            <select id="logSessionSelect" class="select"></select>
+          </div>
+          <div>
+            <label class="label">メンバー</label>
+            <select id="logMemberSelect" class="select"></select>
+          </div>
+          <button class="btn btn-soft" type="button" onclick="loadPunchLogs()">履歴を読み込む</button>
+          <div id="punchLogList" class="log-list">
+            <div class="muted">履歴を読み込むとここに表示されます。</div>
+          </div>
         </div>
       </div>
     </div>
@@ -233,9 +314,15 @@
 
   <script>
     const LS_DEVICE = 'kokushi_scanner_device_id_v1';
+    const SS_ADMIN_PIN = 'kokushi_scanner_admin_pin_v1';
     const DEFAULT_API_BASE = 'https://script.google.com/macros/s/AKfycbwkSQ3HC3utCATzjxNHNAhoLRg33ghMUDVy0zkoZmXGHiXyvn8ALMfvqEPU_47evI1TDw/exec';
     const DEBUG_MODE = new URLSearchParams(location.search).get('debug') === '1';
     let currentMode = 'in';
+    let manualEventType = 'in';
+    let adminPin = sessionStorage.getItem(SS_ADMIN_PIN) || '';
+    let adminSessions = [];
+    let memberCache = [];
+    let punchLogCache = [];
     let stream = null;
     let scanRAF = 0;
     let barcodeDetector = null;
@@ -253,6 +340,7 @@
       const base = getApiBase_();
       setStatus(base ? '準備完了。セッションを自動読込します。' : 'スキャナ設定が未完了です。管理者に確認してください。', !base);
       renderDataPanel();
+      renderAdminPanel();
       if (base) loadSessions();
     }
 
@@ -263,6 +351,10 @@
         document.getElementById(`tabBtn-${n}`).classList.toggle('active', n === name);
       });
       if (name === 'data') renderDataPanel();
+      if (name === 'admin') {
+        renderAdminPanel();
+        if (adminPin && (!adminSessions.length || !memberCache.length)) loadAdminData();
+      }
     }
 
     function setMode(mode) {
@@ -270,6 +362,12 @@
       document.getElementById('modeIn').className = 'mode-btn' + (mode === 'in' ? ' active-in' : '');
       document.getElementById('modeOut').className = 'mode-btn' + (mode === 'out' ? ' active-out' : '');
       renderDataPanel();
+    }
+
+    function setManualMode(mode) {
+      manualEventType = mode;
+      document.getElementById('manualModeIn').className = 'mode-btn' + (mode === 'in' ? ' active-in' : '');
+      document.getElementById('manualModeOut').className = 'mode-btn' + (mode === 'out' ? ' active-out' : '');
     }
 
     async function loadSessions() {
@@ -297,6 +395,169 @@
         renderDataPanel();
       } catch (err) {
         setStatus(`セッション取得失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function unlockAdmin() {
+      const pin = document.getElementById('adminPinInput').value.trim();
+      if (!pin) return setStatus('管理PINを入力してください。', true);
+      try {
+        const res = await apiCall_('verify_pin', { pin });
+        if (!res.ok) throw new Error(res.error || 'PIN確認に失敗しました。');
+        if (!res.data || !res.data.verified) throw new Error('PINが違います。');
+        adminPin = pin;
+        sessionStorage.setItem(SS_ADMIN_PIN, pin);
+        document.getElementById('adminPinInput').value = '';
+        renderAdminPanel();
+        await loadAdminData();
+        setStatus('管理機能を開きました。', false);
+      } catch (err) {
+        setStatus(`管理PIN確認失敗: ${err.message || err}`, true);
+      }
+    }
+
+    function lockAdmin() {
+      adminPin = '';
+      adminSessions = [];
+      memberCache = [];
+      punchLogCache = [];
+      sessionStorage.removeItem(SS_ADMIN_PIN);
+      renderAdminPanel();
+      renderPunchLogs_();
+      setStatus('管理機能を閉じました。', false);
+    }
+
+    function renderAdminPanel() {
+      const locked = document.getElementById('adminLocked');
+      const unlocked = document.getElementById('adminUnlocked');
+      if (!locked || !unlocked) return;
+      locked.hidden = !!adminPin;
+      unlocked.hidden = !adminPin;
+      if (adminPin) {
+        setManualMode(manualEventType);
+        setDefaultManualDateTime_();
+        renderAdminOptions_();
+      }
+    }
+
+    async function loadAdminData() {
+      if (!adminPin) return setStatus('管理PINを入力してください。', true);
+      try {
+        const [sessionsRes, membersRes] = await Promise.all([
+          apiCall_('admin_sessions', { pin: adminPin }),
+          apiCall_('members', { pin: adminPin }),
+        ]);
+        if (!sessionsRes.ok) throw new Error(sessionsRes.error || '練習一覧の取得に失敗しました。');
+        if (!membersRes.ok) throw new Error(membersRes.error || 'メンバー一覧の取得に失敗しました。');
+        adminSessions = Array.isArray(sessionsRes.data) ? sessionsRes.data : [];
+        memberCache = Array.isArray(membersRes.data) ? membersRes.data : [];
+        renderAdminOptions_();
+        setStatus('管理データを読み込みました。', false);
+      } catch (err) {
+        setStatus(`管理データ取得失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function submitManualPunch() {
+      if (!adminPin) return setStatus('管理PINを入力してください。', true);
+      const sessionId = valueOf_('manualSessionSelect');
+      const memberId = valueOf_('manualMemberSelect');
+      const scannedAt = valueOf_('manualScannedAt');
+      if (!sessionId) return setStatus('対象セッションを選択してください。', true);
+      if (!memberId) return setStatus('メンバーを選択してください。', true);
+      if (!scannedAt) return setStatus('打刻日時を入力してください。', true);
+
+      try {
+        const res = await apiCall_('manual_punch', {
+          pin: adminPin,
+          sessionId,
+          memberId,
+          eventType: manualEventType,
+          scannedAt,
+          operatorName: document.getElementById('operatorName').value.trim(),
+          note: valueOf_('manualNote'),
+        });
+        if (!res.ok) throw new Error(res.error || '打刻追加に失敗しました。');
+        const data = res.data || {};
+        setStatus(data.message || '打刻を追加しました。', false, data.event_type || manualEventType);
+        document.getElementById('manualNote').value = '';
+        if (valueOf_('logSessionSelect') === sessionId) loadPunchLogs();
+      } catch (err) {
+        setStatus(`打刻追加失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function loadPunchLogs() {
+      if (!adminPin) return setStatus('管理PINを入力してください。', true);
+      const sessionId = valueOf_('logSessionSelect');
+      if (!sessionId) return setStatus('対象セッションを選択してください。', true);
+      try {
+        const res = await apiCall_('punch_logs', {
+          pin: adminPin,
+          sessionId,
+          memberId: valueOf_('logMemberSelect'),
+        });
+        if (!res.ok) throw new Error(res.error || '履歴取得に失敗しました。');
+        punchLogCache = Array.isArray(res.data) ? res.data : [];
+        renderPunchLogs_();
+        setStatus(`打刻履歴を ${punchLogCache.length} 件読み込みました。`, false);
+      } catch (err) {
+        setStatus(`履歴取得失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function invalidateLog(index) {
+      if (!adminPin) return setStatus('管理PINを入力してください。', true);
+      const log = punchLogCache[Number(index)];
+      if (!log || !log.log_id) return setStatus('対象の打刻ログが見つかりません。', true);
+      if (String(log.status) !== 'valid') return setStatus('この打刻はすでに無効です。', true);
+      const reason = prompt('無効化理由を入力してください', '誤打刻');
+      if (!reason || !reason.trim()) return;
+
+      try {
+        const res = await apiCall_('invalidate_punch', {
+          pin: adminPin,
+          sessionId: log.session_id,
+          logId: log.log_id,
+          reason: reason.trim(),
+          operatorName: document.getElementById('operatorName').value.trim(),
+        });
+        if (!res.ok) throw new Error(res.error || '無効化に失敗しました。');
+        setStatus('打刻を無効化し、集計を更新しました。', false);
+        await loadPunchLogs();
+      } catch (err) {
+        setStatus(`無効化失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function recalculateSelectedSession() {
+      if (!adminPin) return setStatus('管理PINを入力してください。', true);
+      const sessionId = valueOf_('adminSessionSelect');
+      if (!sessionId) return setStatus('対象セッションを選択してください。', true);
+      try {
+        const res = await apiCall_('recalculate', { pin: adminPin, sessionId });
+        if (!res.ok) throw new Error(res.error || '再計算に失敗しました。');
+        const count = res.data && res.data.count !== undefined ? res.data.count : '-';
+        setStatus(`再計算しました。対象 ${count} 件`, false);
+      } catch (err) {
+        setStatus(`再計算失敗: ${err.message || err}`, true);
+      }
+    }
+
+    async function closeSelectedSession() {
+      if (!adminPin) return setStatus('管理PINを入力してください。', true);
+      const sessionId = valueOf_('adminSessionSelect');
+      if (!sessionId) return setStatus('対象セッションを選択してください。', true);
+      if (!confirm('この練習を終了しますか？')) return;
+
+      try {
+        const res = await apiCall_('close_session', { pin: adminPin, sessionId });
+        if (!res.ok) throw new Error(res.error || '練習終了に失敗しました。');
+        setStatus('練習を終了し、集計を更新しました。', false);
+        await loadSessions();
+        await loadAdminData();
+      } catch (err) {
+        setStatus(`練習終了失敗: ${err.message || err}`, true);
       }
     }
 
@@ -535,6 +796,111 @@
       if (debugEl) debugEl.textContent = DEBUG_MODE ? buildDebugUrl_() : '-';
     }
 
+    function renderAdminOptions_() {
+      if (!adminPin) return;
+      const preferredSessionId = valueOf_('adminSessionSelect') || valueOf_('sessionSelect') || (adminSessions[0] && adminSessions[0].session_id) || '';
+      fillSessionSelect_('adminSessionSelect', preferredSessionId);
+      fillSessionSelect_('manualSessionSelect', valueOf_('manualSessionSelect') || preferredSessionId);
+      fillSessionSelect_('logSessionSelect', valueOf_('logSessionSelect') || preferredSessionId);
+      fillMemberSelect_('manualMemberSelect', false, valueOf_('manualMemberSelect'));
+      fillMemberSelect_('logMemberSelect', true, valueOf_('logMemberSelect'));
+    }
+
+    function fillSessionSelect_(id, selectedId) {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const current = selectedId || select.value || '';
+      select.innerHTML = '';
+      if (!adminSessions.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '練習がありません';
+        select.appendChild(opt);
+        return;
+      }
+      adminSessions.forEach((session) => {
+        const opt = document.createElement('option');
+        opt.value = session.session_id || '';
+        opt.textContent = session.label || session.session_id || '';
+        select.appendChild(opt);
+      });
+      if (current && Array.from(select.options).some(opt => opt.value === current)) {
+        select.value = current;
+      }
+    }
+
+    function fillMemberSelect_(id, allowAll, selectedId) {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const current = selectedId || select.value || '';
+      select.innerHTML = '';
+      if (allowAll) {
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'すべてのメンバー';
+        select.appendChild(allOpt);
+      }
+      if (!memberCache.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = allowAll ? 'メンバー未読込' : 'メンバーがありません';
+        select.appendChild(opt);
+        return;
+      }
+      memberCache.forEach((member) => {
+        const opt = document.createElement('option');
+        opt.value = member.member_id || '';
+        opt.textContent = `${member.display_no ? member.display_no + ' ' : ''}${member.name || member.member_id}`;
+        select.appendChild(opt);
+      });
+      if (current && Array.from(select.options).some(opt => opt.value === current)) {
+        select.value = current;
+      }
+    }
+
+    function renderPunchLogs_() {
+      const el = document.getElementById('punchLogList');
+      if (!el) return;
+      if (!punchLogCache.length) {
+        el.innerHTML = '<div class="muted">打刻履歴はありません。</div>';
+        return;
+      }
+
+      el.innerHTML = punchLogCache.map((log, index) => {
+        const isValid = String(log.status) === 'valid';
+        const eventLabel = eventTypeLabel_(log.event_type);
+        const scannedAt = formatDateTime_(log.scanned_at);
+        const source = log.source ? ` / ${escapeHtml_(log.source)}` : '';
+        const message = log.message ? `<div class="log-meta">${escapeHtml_(log.message)}</div>` : '';
+        const action = isValid
+          ? `<button class="btn btn-soft btn-small" type="button" onclick="invalidateLog(${index})">無効化</button>`
+          : '';
+        return `
+          <div class="log-item">
+            <div class="log-head">
+              <div>
+                <div class="log-name">${escapeHtml_(log.display_no ? log.display_no + ' ' : '')}${escapeHtml_(log.name || log.member_id || '')}</div>
+                <div class="log-meta">${escapeHtml_(scannedAt)} / ${escapeHtml_(eventLabel)}${source}</div>
+              </div>
+              <span class="badge ${isValid ? '' : 'badge-invalid'}">${isValid ? '有効' : '無効'}</span>
+            </div>
+            ${message}
+            ${action}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function setDefaultManualDateTime_() {
+      const el = document.getElementById('manualScannedAt');
+      if (el && !el.value) el.value = toDateTimeInputValue_(new Date());
+    }
+
+    function valueOf_(id) {
+      const el = document.getElementById(id);
+      return el ? String(el.value || '').trim() : '';
+    }
+
     async function apiCall_(action, params) {
       const base = getApiBase_();
       if (!base) throw new Error('スキャナ設定が未完了です。');
@@ -617,6 +983,27 @@
       if (eventType === 'out') return '退場';
       if (eventType === 'in') return '入場';
       return '打刻';
+    }
+
+    function toDateTimeInputValue_(date) {
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return '';
+      return [
+        d.getFullYear(),
+        pad2_(d.getMonth() + 1),
+        pad2_(d.getDate()),
+      ].join('-') + `T${pad2_(d.getHours())}:${pad2_(d.getMinutes())}`;
+    }
+
+    function formatDateTime_(value) {
+      if (!value) return '-';
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return String(value);
+      return `${d.getFullYear()}/${pad2_(d.getMonth() + 1)}/${pad2_(d.getDate())} ${pad2_(d.getHours())}:${pad2_(d.getMinutes())}`;
+    }
+
+    function pad2_(value) {
+      return String(value).padStart(2, '0');
     }
 
     function escapeHtml_(str) {
