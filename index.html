@@ -430,10 +430,12 @@
 
     async function getStream_() {
       const candidates = [
-        { audio: false, video: true },
-        { audio: false, video: { facingMode: { ideal: 'environment' } } },
+        { audio: false, video: { facingMode: { exact: 'environment' } } },
+        { audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
         { audio: false, video: { facingMode: 'environment' } },
+        { audio: false, video: { facingMode: { ideal: 'environment' } } },
         { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { audio: false, video: true },
       ];
       let lastErr = null;
       for (const constraints of candidates) {
